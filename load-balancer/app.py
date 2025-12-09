@@ -9,6 +9,7 @@ app = Flask(__name__)
 LISTENER_PORT = int(os.getenv("LISTENER_PORT", 80))
 CONNECTION_TIMEOUT = int(os.getenv("CONNECTION_TIMEOUT", 2))
 LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "ROUND_ROBIN")
+DEBUG = True if os.getenv("DEBUG", "True") == "True" else False
 
 # List of backend servers
 SERVERS = [
@@ -101,4 +102,4 @@ def get_targets():
 
 if __name__ == "__main__":
     print(f"Load balancer running on port {LISTENER_PORT}...")
-    app.run(host='0.0.0.0', port=LISTENER_PORT, debug=True)
+    app.run(host='0.0.0.0', port=LISTENER_PORT, debug=DEBUG)
