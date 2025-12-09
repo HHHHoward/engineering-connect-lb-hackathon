@@ -48,7 +48,7 @@ config = load_config()
 LISTENERS = config["listeners"]
 
 logger.debug(f"Listeners loaded: {LISTENERS}")
-logger.debug(f"Algorithm picked: {LOAD_BALANCING_ALGORITHM}")
+print("test12111")
 
 TARGET_GROUPS = {
     group["name"]: [
