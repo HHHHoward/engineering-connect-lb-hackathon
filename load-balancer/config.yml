@@ -1,0 +1,24 @@
+listeners:
+  - path_prefix: "/api"
+    path_rewrite: "/v1"
+    target_group: "backend-docker"
+
+
+target_groups:
+  - name: "backend-docker"
+    targets:
+      - hostname: "backend1"
+        port: 5000
+      - hostname: "backend2"
+        port: 5000
+      - hostname: "backend3"
+        port: 5000
+
+  - name: "backend-localhost"
+    targets:
+      - hostname: "127.0.0.1"
+        port: 5001
+      - hostname: "127.0.0.1"
+        port: 5002
+      - hostname: "127.0.0.1"
+        port: 5003

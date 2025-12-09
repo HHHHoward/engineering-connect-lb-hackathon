@@ -8,7 +8,7 @@ HOSTNAME = socket.gethostname()
 PORT = int(os.getenv("PORT", 5000))
 DEBUG = True if os.getenv("DEBUG", "True") == "True" else False
 
-@app.route("/")
+@app.route("/v1")
 def home():
     """Return message with hostname and port."""
 
@@ -28,5 +28,4 @@ def healthcheck():
 
 if __name__ == "__main__":
     print(f"Backend {HOSTNAME} running on port {PORT}...")
-    print(f"Debug mode is {'on' if DEBUG else 'off'}.")
-    app.run(host='0.0.0.0', port=PORT, debug=DEBUG)
+    app.run(host='0.0.0.0', port=PORT, debug=False)
