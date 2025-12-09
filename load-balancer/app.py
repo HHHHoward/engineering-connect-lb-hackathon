@@ -108,6 +108,46 @@ def get_next_server(target_group_name):
         current = (current + 1) % len(healthy_servers)
         return server
 
+# # ---------------------------
+# #  STICKY SERVER PICKER
+# # ---------------------------
+#       case "Sticky":
+#         global current, STICKY_MAP
+
+#         if 'STICKY_MAP' not in globals():
+#             STICKY_MAP = {}
+
+#         if target_group_name not in TARGET_GROUPS:
+#             logger.warning(f"Target group {target_group_name} not found.")
+#             return None
+        
+#         healthy_servers = TARGET_GROUPS[target_group_name]
+#         if not healthy_servers:
+#             logger.warning(f"No healthy servers in target group '{target_group_name}'.")
+#             return None
+
+# #   NEED TO GET CLIENT ID!! WHERE CAN I STORE IT
+#         client_id = None
+#         if not client_id:
+#             logger.warning(f"Sticky algorithm requires client id in request")
+#             return None
+        
+#         if client_id in STICKY_MAP:
+#             assigned_server = STICKY_MAP[client_id]
+#             if assigned_server in healthy_servers:
+#                 logger.info(f"Returning sticky server {assigned_server} for client {client_id} in target group {target_group_name}")
+#                 return assigned_server
+#             else:
+#                 logger.warning(f"{assigned_server} for client {client_id} is no longer healthy")
+        
+#         server = healthy_servers[current]
+#         STICKY_MAP[client_id] = server
+#         logger.info(f"Assigned new sticky server {server} to client {client_id} in target group {target_group_name}")
+
+#         current = (current + 1) % len(healthy_servers)
+#         return server
+
+
 # ---------------------------
 #        HEALTH CHECKER
 # ---------------------------
