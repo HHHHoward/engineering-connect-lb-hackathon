@@ -42,15 +42,3 @@ target_groups:
         port: 5002
       - hostname: "127.0.0.2"
         port: 5003
-
-Algorithom:
-  #- name: "Round Robin"
-  #  weight:
-  #    - backend1: 1
-  #    - backend2: 1
-  #    - backend3: 1
-  - name: "Weighted"
-    weight:
-      - backend1: 3
-      - backend2: 1
-      - backend3: 2

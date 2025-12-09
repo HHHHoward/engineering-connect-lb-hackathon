@@ -11,10 +11,10 @@ app = Flask(__name__)
 
 LISTENER_PORT = int(os.getenv("LISTENER_PORT", 80))
 CONNECTION_TIMEOUT = int(os.getenv("CONNECTION_TIMEOUT", 2))
-LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "ROUND_ROBIN")
+LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "Weighted")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 CONFIG_FILE = os.getenv("CONFIG_FILE", "config.yml")
-
+WEIGHT = os.getenv("Weight",[3,1,2])
 current = 0
 
 # Configure logging
@@ -48,8 +48,7 @@ config = load_config()
 LISTENERS = config["listeners"]
 
 logger.debug(f"Listeners loaded: {LISTENERS}")
-
-ALGORITHOM = config["Algorithom"][0]["name"] ##conditions for Algorithom used
+logger.debug(f"Algorithm picked: {LOAD_BALANCING_ALGORITHM}")
 
 TARGET_GROUPS = {
     group["name"]: [
@@ -65,7 +64,7 @@ logger.debug(f"Target Groups loaded: {TARGET_GROUPS}")
 # ---------------------------
 
 def get_next_server(target_group_name):
-    match ALGORITHOM:
+    match LOAD_BALANCING_ALGORITHM:
       case "Round Robin":
         global current
         if target_group_name not in TARGET_GROUPS:
