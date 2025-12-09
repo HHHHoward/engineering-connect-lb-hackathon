@@ -41,9 +41,9 @@ services:
     env_file:
       - ./backend-api/.env
 
-  locust:
+  load-tester:
     image: locustio/locust
-    container_name: locust
+    container_name: load-tester
     ports:
       - "8089:8089"
     volumes:

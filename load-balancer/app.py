@@ -136,10 +136,16 @@ def proxy(subpath):
         return {"error": "No healthy backend servers available"}, 503
 
     try:
-        logger.debug(f"Forwarding request to {target}{full_path}")
+        logger.debug(f"Forwarding request to {target}{full_path}")        
+        url = target + full_path
+    
+        if "path_rewrite" in listener:
+            logger.debug(f"Rewriting path from '{full_path}' to '{url.replace(listener['path_prefix'], listener['path_rewrite'])}'")
+            url = url.replace(listener["path_prefix"], listener["path_rewrite"], 1)
+
         resp = requests.request(
             method=request.method,
-            url=target + full_path.replace(listener["path_prefix"], listener["path_rewrite"]),
+            url=url,
             headers={k: v for k, v in request.headers if k != 'Host'},
             data=request.get_data(),
             cookies=request.cookies,
@@ -154,12 +160,12 @@ def proxy(subpath):
         logger.error(f"Request to {target} failed: {e}")
         return {"error": f"Server {target} unreachable"}, 502
 
-@app.route("/targets", methods=["GET"])
+@app.route("/config", methods=["GET"])
 def get_targets():
     """Return the list of backend servers and their health status."""
     return {
-        "servers": SERVERS,
-        "healthy_servers": HEALTHY_SERVERS
+        "listeners": LISTENERS,
+        "target_groups": TARGET_GROUPS
     }
 
 if __name__ == "__main__":
