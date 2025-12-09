@@ -2,6 +2,8 @@ services:
   load-balancer:
     build: ./load-balancer
     container_name: load-balancer
+    volumes:
+      - ./load-balancer/config.yml:/app/config.yml
     ports:
       - "8000:80"
     networks:
