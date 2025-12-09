@@ -49,6 +49,8 @@ LISTENERS = config["listeners"]
 
 logger.debug(f"Listeners loaded: {LISTENERS}")
 
+ALGORITHOM = config["Algorithom"][0]["name"] ##conditions for Algorithom used
+
 TARGET_GROUPS = {
     group["name"]: [
         f"http://{target['hostname']}:{target['port']}"
@@ -61,22 +63,51 @@ logger.debug(f"Target Groups loaded: {TARGET_GROUPS}")
 # ---------------------------
 #  ROUND ROBIN SERVER PICKER
 # ---------------------------
-def get_next_server(target_group_name):
-    global current
-    if target_group_name not in TARGET_GROUPS:
-        logger.warning(f"Target group {target_group_name} not found.")
-        return None
-    
-    healthy_servers = TARGET_GROUPS[target_group_name]
-    if not healthy_servers:
-        logger.warning(f"No healthy servers in target group '{target_group_name}'.")
-        return None
-    
-    server = healthy_servers[current]
-    logger.info(f"Selected server {server} from target group '{target_group_name}'.")
-    current = (current + 1) % len(healthy_servers)
-    return server
 
+def get_next_server(target_group_name):
+    match ALGORITHOM:
+      case "Round Robin":
+        global current
+        if target_group_name not in TARGET_GROUPS:
+            logger.warning(f"Target group {target_group_name} not found.")
+            return None
+        
+        healthy_servers = TARGET_GROUPS[target_group_name]
+        if not healthy_servers:
+            logger.warning(f"No healthy servers in target group '{target_group_name}'.")
+            return None
+        
+        server = healthy_servers[current]
+        logger.info(f"Selected server {server} from target group '{target_group_name}'.")
+        current = (current + 1) % len(healthy_servers)
+        return server
+
+# ---------------------------
+#  WEIGHTED SERVER PICKER
+# ---------------------------
+      case "Weighted":
+        global current
+        ## get an array for the weight of 3 backends
+        weight = [config["Algorithom"][0]["weight"]["backend1"],config["Algorithom"][0]["weight"]["backend2"],config["Algorithom"][0]["weight"]["backend3"]]
+        
+        if target_group_name not in TARGET_GROUPS:
+            logger.warning(f"Target group {target_group_name} not found.")
+            return None
+        
+        healthy_servers = TARGET_GROUPS[target_group_name]
+        if not healthy_servers:
+            logger.warning(f"No healthy servers in target group '{target_group_name}'.")
+            return None
+        
+        ##repeat the backend for the weighted times in the target group
+        server_weight_assigned = [i for i, count in zip(healthy_servers, weight) for _ in range(count)] 
+        ##server = healthy_servers[current]
+        ##logger.info(f"Selected server {server} from target group '{target_group_name}'.")
+        ##current = (current + 1) % len(healthy_servers)
+        server = server_weight_assigned[current]
+        logger.info(f"Selected server {server} from target group '{target_group_name}'.")
+        current = (current + 1) % len(healthy_servers)
+        return server
 
 # ---------------------------
 #        HEALTH CHECKER
