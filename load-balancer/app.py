@@ -1,15 +1,20 @@
 from flask import Flask, request, Response
+import os
 import requests
 import threading
 import time
 
 app = Flask(__name__)
 
+LISTENER_PORT = int(os.getenv("LISTENER_PORT", 80))
+CONNECTION_TIMEOUT = int(os.getenv("CONNECTION_TIMEOUT", 2))
+LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "ROUND_ROBIN")
+
 # List of backend servers
 SERVERS = [
-    "http://127.0.0.1:5001",
-    "http://127.0.0.1:5002",
-    "http://127.0.0.1:5003"
+    "http://backend1:5000",
+    "http://backend2:5000",
+    "http://backend3:5000"
 ]
 
 HEALTHY_SERVERS = SERVERS.copy()
@@ -86,7 +91,14 @@ def proxy():
     except requests.exceptions.RequestException:
         return {"error": f"Server {target} unreachable"}, 502
 
+@app.route("/targets", methods=["GET"])
+def get_targets():
+    """Return the list of backend servers and their health status."""
+    return {
+        "servers": SERVERS,
+        "healthy_servers": HEALTHY_SERVERS
+    }
 
 if __name__ == "__main__":
-    print("Load balancer running on port 8000...")
-    app.run(port=8000)
+    print(f"Load balancer running on port {LISTENER_PORT}...")
+    app.run(host='0.0.0.0', port=LISTENER_PORT, debug=True)
