@@ -48,7 +48,6 @@ config = load_config()
 LISTENERS = config["listeners"]
 
 logger.debug(f"Listeners loaded: {LISTENERS}")
-print("test12111")
 
 TARGET_GROUPS = {
     group["name"]: [
@@ -64,9 +63,9 @@ logger.debug(f"Target Groups loaded: {TARGET_GROUPS}")
 # ---------------------------
 
 def get_next_server(target_group_name):
+    global current
     match LOAD_BALANCING_ALGORITHM:
       case "Round Robin":
-        global current
         if target_group_name not in TARGET_GROUPS:
             logger.warning(f"Target group {target_group_name} not found.")
             return None
@@ -84,11 +83,7 @@ def get_next_server(target_group_name):
 # ---------------------------
 #  WEIGHTED SERVER PICKER
 # ---------------------------
-      case "Weighted":
-        global current
-        ## get an array for the weight of 3 backends
-        weight = [config["Algorithom"][0]["weight"]["backend1"],config["Algorithom"][0]["weight"]["backend2"],config["Algorithom"][0]["weight"]["backend3"]]
-        
+      case "Weighted":      
         if target_group_name not in TARGET_GROUPS:
             logger.warning(f"Target group {target_group_name} not found.")
             return None
@@ -99,13 +94,14 @@ def get_next_server(target_group_name):
             return None
         
         ##repeat the backend for the weighted times in the target group
-        server_weight_assigned = [i for i, count in zip(healthy_servers, weight) for _ in range(count)] 
+        server_weight_assigned = [i for i, count in zip(healthy_servers, WEIGHT) for _ in range(count)] 
         ##server = healthy_servers[current]
         ##logger.info(f"Selected server {server} from target group '{target_group_name}'.")
         ##current = (current + 1) % len(healthy_servers)
+        logger.info(f"Selected servers are {server_weight_assigned}")
         server = server_weight_assigned[current]
         logger.info(f"Selected server {server} from target group '{target_group_name}'.")
-        current = (current + 1) % len(healthy_servers)
+        current = (current + 1) % len(server_weight_assigned)
         return server
 
 # ---------------------------
