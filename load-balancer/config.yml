@@ -3,8 +3,19 @@ listeners:
     path_rewrite: "/v1"
     target_group: "backend-docker"
 
+  - path_prefix: "/local"
+    path_rewrite: "/v1"
+    target_group: "backend-localhost"
+
+  - path_prefix: "/targets"
+    target_group: "local"
 
 target_groups:
+  - name: "local"
+    targets:
+      - hostname: "127.0.0.1"
+        port: 3000
+
   - name: "backend-docker"
     targets:
       - hostname: "backend1"
