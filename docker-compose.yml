@@ -1,0 +1,57 @@
+services:
+  load-balancer:
+    build: ./load-balancer
+    container_name: load-balancer
+    ports:
+      - "8000:80"
+    networks:
+      - app-network
+    env_file:
+      - ./load-balancer/.env
+
+  backend1:
+    build: ./backend-api
+    container_name: backend1
+    ports:
+      - "5001:5000"
+    networks:
+      - app-network
+    env_file:
+      - ./backend-api/.env
+
+  backend2:
+    build: ./backend-api
+    container_name: backend2
+    ports:
+      - "5002:5000"
+    networks:
+      - app-network
+    env_file:
+      - ./backend-api/.env
+
+  backend3:
+    build: ./backend-api
+    container_name: backend3
+    ports:
+      - "5003:5000"
+    networks:
+      - app-network
+    env_file:
+      - ./backend-api/.env
+
+  locust:
+    image: locustio/locust
+    container_name: locust
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./load-tester:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --host=http://load-balancer:80
+    networks:
+      - app-network
+    depends_on:
+      - backend1
+
+networks:
+  app-network:
+    driver: bridge
