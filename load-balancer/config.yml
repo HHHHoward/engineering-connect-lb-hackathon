@@ -12,11 +12,13 @@ listeners:
 
 target_groups:
   - name: "local"
+    session_ttl: 30000
     targets:
       - hostname: "127.0.0.1"
         port: 3000
 
   - name: "backend-docker"
+    session_ttl: 60000
     targets:
       - hostname: "backend1"
         port: 5000
@@ -26,6 +28,7 @@ target_groups:
         port: 5000
 
   - name: "backend-localhost"
+    session_ttl: 45000
     targets:
       - hostname: "127.0.0.1"
         port: 5001
@@ -35,6 +38,7 @@ target_groups:
         port: 5003
 
   - name: "backend-weighted"
+    session_ttl: 45000
     targets:
       - hostname: "127.0.0.2"
         port: 5001
