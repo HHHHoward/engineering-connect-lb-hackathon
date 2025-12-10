@@ -3,7 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import requests
-import threading
+from threading import Lock
 import time
 import yaml
 
@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 LISTENER_PORT = int(os.getenv("LISTENER_PORT", 80))
 CONNECTION_TIMEOUT = int(os.getenv("CONNECTION_TIMEOUT", 2))
-LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "Weighted")
+LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "Sticky")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 CONFIG_FILE = os.getenv("CONFIG_FILE", "config.yml")
 WEIGHT = os.getenv("Weight",[3,1,2])
@@ -58,6 +58,14 @@ TARGET_GROUPS = {
 }
 
 logger.debug(f"Target Groups loaded: {TARGET_GROUPS}")
+
+def cleanup_expired_sessions():
+    current_time = time.time() *1000
+    expired_clients = [ client_id for client_id, session in STICKY_SESSIONS.items() if session['expires_at'] < current_time]
+    for client_id in expired_clients:
+        logger.info(f"Session expired for client {client_id}, removing from sticky map")
+        del STICKY_SESSIONS[client_id]
+    return len(expired_clients)
 
 # ---------------------------
 #  ROUND ROBIN SERVER PICKER
@@ -112,41 +120,80 @@ def get_next_server(target_group_name):
 #  STICKY SERVER PICKER
 # ---------------------------
       case "Sticky":
-        global current, STICKY_MAP
+        global STICKY_SESSIONS, STICKY_COUNTERS, STICKY_LOCK
 
-        if 'STICKY_MAP' not in globals():
-            STICKY_MAP = {}
+        if 'STICKY_SESSIONS' not in globals():
+            STICKY_SESSIONS = {} 
 
-        if target_group_name not in TARGET_GROUPS:
-            logger.warning(f"Target group {target_group_name} not found.")
-            return None
+        if 'STICKY_COUNTERS' not in globals():
+            STICKY_COUNTERS = {}  
+
+        if 'STICKY_LOCK' not in globals():
+            STICKY_LOCK = Lock()
         
-        healthy_servers = TARGET_GROUPS[target_group_name]
-        if not healthy_servers:
-            logger.warning(f"No healthy servers in target group '{target_group_name}'.")
-            return None
+        with STICKY_LOCK:
+            cleanup_expired_sessions()
+            
+            if target_group_name not in TARGET_GROUPS:
+                logger.warning(f"Target group {target_group_name} not found.")
+                return None
+            
+            healthy_servers = TARGET_GROUPS[target_group_name]
+            if not healthy_servers:
+                logger.warning(f"No healthy servers in target group '{target_group_name}'.")
+                return None
 
-        client_id = request.remote_addr
-        if not client_id:
-            logger.warning(f"Sticky algorithm requires client id in request")
-            return None
-        
-        if client_id in STICKY_MAP:
-            assigned_server = STICKY_MAP[client_id]
-            if assigned_server in healthy_servers:
-                logger.info(f"Returning sticky server {assigned_server} for client {client_id} in target group {target_group_name}")
-                return assigned_server
-            else:
-                logger.warning(f"{assigned_server} for client {client_id} is no longer healthy")
-                del STICKY_MAP[client_id]
-        
-        server = healthy_servers[current]
-        STICKY_MAP[client_id] = server
-        logger.info(f"Assigned new sticky server {server} to client {client_id} in target group {target_group_name}")
+            client_id = request.remote_addr
+            if not client_id:
+                logger.warning(f"Sticky algorithm requires client IP address")
+                return None
 
-        current = (current + 1) % len(healthy_servers)
-        return server
+            session_ttl = None
+            for tg in config.get("target_groups", []):
+                if tg.get("name") == target_group_name:
+                    session_ttl = tg.get("session_ttl")
+                    break
+            
+            if session_ttl is None:
+                logger.warning(f"No session_ttl configured for target group '{target_group_name}'")
+                return None
+            
+            current_time = time.time() * 1000  # Convert to milliseconds
+            
+            if client_id in STICKY_SESSIONS:
+                session = STICKY_SESSIONS[client_id]
 
+                if session['target_group'] != target_group_name:
+                    logger.info(f"Client {client_id} switching target groups, creating new session")
+                    del STICKY_SESSIONS[client_id]
+
+                elif session['expires_at'] < current_time:
+                    logger.info(f"Session expired for client {client_id}, creating new session")
+                    del STICKY_SESSIONS[client_id]
+
+                elif session['server'] not in healthy_servers:
+                    logger.warning(f"Assigned server {session['server']} is no longer healthy for client {client_id}, creating new session")
+                    del STICKY_SESSIONS[client_id]
+                else:
+                    logger.info(f"Returning sticky server {session['server']} for client {client_id} (expires in {int((session['expires_at'] - current_time) / 1000)}s)")
+                    return session['server']
+
+            if target_group_name not in STICKY_COUNTERS:
+                STICKY_COUNTERS[target_group_name] = 0
+
+            counter = STICKY_COUNTERS[target_group_name]
+            server = healthy_servers[counter % len(healthy_servers)]
+            STICKY_COUNTERS[target_group_name] = (counter + 1) % len(healthy_servers)
+
+            expires_at = current_time + session_ttl
+            STICKY_SESSIONS[client_id] = {
+                'server': server,
+                'expires_at': expires_at,
+                'target_group': target_group_name
+            }
+            
+            logger.info(f"Created new session for client {client_id} -> server {server} in target group '{target_group_name}' (TTL: {session_ttl}ms)")
+            return server
 
 # ---------------------------
 #        HEALTH CHECKER
