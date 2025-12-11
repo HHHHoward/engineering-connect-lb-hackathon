@@ -7,38 +7,84 @@ listeners:
     path_rewrite: "/v1"
     target_group: "backend-localhost"
 
-  - path_prefix: "/targets"
-    target_group: "local"
+  - path_prefix: "/weighted"
+    path_rewrite: "/v1"
+    target_group: "backend-weighted"
+
 
 target_groups:
-  - name: "local"
-    targets:
-      - hostname: "127.0.0.1"
-        port: 3000
 
   - name: "backend-docker"
     targets:
       - hostname: "backend1"
         port: 5000
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
       - hostname: "backend2"
         port: 5000
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
       - hostname: "backend3"
         port: 5000
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
 
   - name: "backend-localhost"
     targets:
       - hostname: "127.0.0.1"
         port: 5001
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
       - hostname: "127.0.0.1"
         port: 5002
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
       - hostname: "127.0.0.1"
         port: 5003
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
 
   - name: "backend-weighted"
     targets:
-      - hostname: "127.0.0.2"
+      - hostname: "127.0.0.1"
         port: 5001
-      - hostname: "127.0.0.2"
+        weight: 3
+        healthcheck:
+          path: "/health"
+          status_code: 
+            - 200
+          timeout: 2
+      - hostname: "127.0.0.1"
         port: 5002
-      - hostname: "127.0.0.2"
+        weight: 2
+        healthcheck:
+          path: "/health"
+          status_code:
+            - 200
+          timeout: 2
+      - hostname: "127.0.0.1"
         port: 5003
+        weight: 1
+        healthcheck:
+          path: "/health"
+          status_code:
+            - 200
+          timeout: 2

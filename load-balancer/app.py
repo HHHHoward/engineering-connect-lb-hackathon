@@ -9,13 +9,12 @@ import yaml
 
 app = Flask(__name__)
 
+CONFIG_FILE = os.getenv("CONFIG_FILE", "config.yml")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 LISTENER_PORT = int(os.getenv("LISTENER_PORT", 80))
 CONNECTION_TIMEOUT = int(os.getenv("CONNECTION_TIMEOUT", 2))
-LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "Weighted")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-CONFIG_FILE = os.getenv("CONFIG_FILE", "config.yml")
-WEIGHT = os.getenv("Weight",[3,1,2])
-current = 0
+LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "ROUND_ROBIN").upper()
 
 # Configure logging
 logging.basicConfig(
@@ -34,7 +33,7 @@ file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(mes
 logger.addHandler(file_handler)
 
 def load_config():
-    logger.info(f"Loading configuration from {CONFIG_FILE}")
+    logger.debug(f"Loading configuration from {CONFIG_FILE}")
     try:
         with open("config.yml", "r") as file:
             return yaml.safe_load(file)
@@ -49,129 +48,160 @@ LISTENERS = config["listeners"]
 
 logger.debug(f"Listeners loaded: {LISTENERS}")
 
-TARGET_GROUPS = {
-    group["name"]: [
-        f"http://{target['hostname']}:{target['port']}"
-        for target in group["targets"]
-    ] for group in config["target_groups"]
-}
+def load_target_groups():
+    logger.debug("Loading target groups from configuration")
+    target_groups = {}
+    for target_group in config["target_groups"]:
+        targets = []
+        for target in target_group["targets"]:
+            healthcheck = target.get("healthcheck", {"path": "/", "status_code": [200], "timeout": 2})
+            healthcheck["path"] = healthcheck.get("path", "/")
+            healthcheck["status_code"] = healthcheck.get("status_code", [200])
+            healthcheck["timeout"] = healthcheck.get("timeout", 2)
+
+            logger.debug(f"Loading server healthcheck: {healthcheck}")
+
+            server = {
+                "hostname": f"http://{target['hostname']}:{target['port']}",
+                "weight": target.get("weight", 1),
+                "healthcheck": healthcheck
+            }
+            targets.append(server)
+        
+        target_groups[target_group["name"]] = {
+            "servers": targets,
+            "current_index": 0,
+            "healthy_servers": targets.copy()
+        }
+    return target_groups
+
+TARGET_GROUPS = load_target_groups()
 
 logger.debug(f"Target Groups loaded: {TARGET_GROUPS}")
 
-# ---------------------------
-#  ROUND ROBIN SERVER PICKER
-# ---------------------------
 
 def get_next_server(target_group_name):
-    global current
+    if target_group_name not in TARGET_GROUPS:
+        logger.debug(f"Target group {target_group_name} not found.")
+        return None
+    
+    target_group = TARGET_GROUPS[target_group_name]
+    healthy_servers = target_group["healthy_servers"]
+
+    if not healthy_servers:
+        logger.debug(f"No healthy servers in target group '{target_group_name}'.")
+        return None
+    
+    current = target_group["current_index"]
+
     match LOAD_BALANCING_ALGORITHM:
-      case "Round Robin":
-        if target_group_name not in TARGET_GROUPS:
-            logger.warning(f"Target group {target_group_name} not found.")
-            return None
-        
-        healthy_servers = TARGET_GROUPS[target_group_name]
-        if not healthy_servers:
-            logger.warning(f"No healthy servers in target group '{target_group_name}'.")
-            return None
-        
+      case "ROUND_ROBIN":        
         server = healthy_servers[current]
-        logger.info(f"Selected server {server} from target group '{target_group_name}'.")
-        current = (current + 1) % len(healthy_servers)
+        logger.debug(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
+        target_group["current_index"] = (current + 1) % len(healthy_servers)
         return server
 
-# ---------------------------
-#  WEIGHTED SERVER PICKER
-# ---------------------------
-      case "Weighted":      
-        if target_group_name not in TARGET_GROUPS:
-            logger.warning(f"Target group {target_group_name} not found.")
-            return None
-        
-        healthy_servers = TARGET_GROUPS[target_group_name]
-        if not healthy_servers:
-            logger.warning(f"No healthy servers in target group '{target_group_name}'.")
-            return None
-        
-        ##repeat the backend for the weighted times in the target group
-        server_weight_assigned = [i for i, count in zip(healthy_servers, WEIGHT) for _ in range(count)] 
-        ##server = healthy_servers[current]
-        ##logger.info(f"Selected server {server} from target group '{target_group_name}'.")
-        ##current = (current + 1) % len(healthy_servers)
-        logger.info(f"Selected servers are {server_weight_assigned}")
+      case "WEIGHTED":         
+        weights = [
+            server.get("weight", 1)
+            for server in healthy_servers
+        ]        
+
+        server_weight_assigned = [
+            server for server, weight in zip(healthy_servers, weights) for _ in range(weight)
+        ] 
+
         server = server_weight_assigned[current]
-        logger.info(f"Selected server {server} from target group '{target_group_name}'.")
-        current = (current + 1) % len(server_weight_assigned)
+        logger.debug(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
+        
+        target_group["current_index"] = (current + 1) % len(server_weight_assigned)
         return server
 
-# ---------------------------
-#        HEALTH CHECKER
-# ---------------------------
+    logger.debug(f"Unknown load balancing algorithm: {LOAD_BALANCING_ALGORITHM}")
+    return None
+
+
 def check_server(server):
-    """Send a GET / request; healthy if status < 400."""
+    """Send a GET request to the healthcheck endpoint; healthy if status matches."""
     try:
-        r = requests.get(server, timeout=1)
-        return r.status_code < 400
-    except Exception:
+        healthcheck = server.get("healthcheck", {"path": "/", "status_code": [200], "timeout": 2})
+        healthcheck_path = f"{server['hostname']}{healthcheck['path']}"
+        
+        logger.debug(f"Performing health check for {healthcheck_path} with timeout {healthcheck['timeout']}")
+
+        r = requests.get(healthcheck_path, timeout=healthcheck["timeout"])
+        logger.debug(f"Health check response from {healthcheck_path}: {r.status_code}")
+
+        return r.status_code in healthcheck["status_code"]
+    
+    except requests.exceptions.Timeout:
+        logger.warning(f"Health check for {server['hostname']} timed out.")
+        return False
+    except Exception as e:
+        logger.error(f"Health check failed for {server['hostname']}: {e}")
         return False
 
 
-# def health_check_loop():
-#     """Background thread that checks every server every 3 seconds."""
-#     global HEALTHY_SERVERS
+def health_check_loop():
+    """Background thread that checks every server every 3 seconds."""
+    while True:
+        for group_name, group_data in TARGET_GROUPS.items():
+            logger.debug(f"Performing health checks for target group '{group_name}'")
 
-#     while True:
-#         new_healthy = []
+            new_healthy_servers = [
+                server for server in group_data["servers"] if check_server(server)
+            ]
 
-#         for server in SERVERS:
-#             if check_server(server):
-#                 new_healthy.append(server)
+            if new_healthy_servers != group_data["healthy_servers"]:
+                logger.info(f"Health status changed for target group '{group_name}'. Healthy servers: {new_healthy_servers}")
 
-#         HEALTHY_SERVERS = new_healthy
-
-#         print("Health check:", HEALTHY_SERVERS)
-#         time.sleep(3)
-
-
-# # Start checker thread
-# threading.Thread(target=health_check_loop, daemon=True).start()
+            group_data["healthy_servers"] = new_healthy_servers
+        time.sleep(3)
 
 
-# ---------------------------
-#          PROXY
-# ---------------------------
+threading.Thread(target=health_check_loop, daemon=True).start()
+
+
 @app.route("/", defaults={"subpath": ""}, methods=["GET", "POST"])
 @app.route("/<path:subpath>", methods=["GET", "POST"])
 def proxy(subpath):
     full_path = f"/{subpath}"
-    # path = request.path
-    listener = next((l for l in LISTENERS if full_path.startswith(l["path_prefix"])), None)
+
+    listener_rule = next(
+        (rule for rule in LISTENERS if full_path.startswith(rule["path_prefix"])),
+        None
+    )
     
     logger.debug(f"Incoming request path: {full_path}")
-    if not listener:
-        logger.warning(f"No matching listener found for path '{full_path}'")
-        return {"error": f"No matching listener found for path '{full_path}'"}, 404
 
-    logger.debug(f"Matched listener: {listener}")
+    if not listener_rule:
+        logger.debug(f"No matching listener found for path '{full_path}'")
+        return Response("Not found", status=404)
 
-    target_group = listener["target_group"]
-    target = get_next_server(target_group)
+    logger.debug(f"Matched listener: {listener_rule}")
 
-    if not target:
-        logger.error(f"No healthy backend servers available for target group '{target_group}'")
-        return {"error": "No healthy backend servers available"}, 503
+    target_group_name = listener_rule["target_group"]
+    target_group = TARGET_GROUPS.get(target_group_name)
+
+    if not target_group or not target_group["healthy_servers"]:
+        logger.debug(f"No healthy backend servers available for target group '{target_group_name}'")
+        return Response("Service unavailable", status=503)
 
     try:
-        logger.debug(f"Forwarding request to {target}{full_path}")        
-        url = target + full_path
-    
-        if "path_rewrite" in listener:
-            logger.debug(f"Rewriting path from '{full_path}' to '{url.replace(listener['path_prefix'], listener['path_rewrite'])}'")
-            url = url.replace(listener["path_prefix"], listener["path_rewrite"], 1)
+        logger.debug(f"Forwarding request to {target_group_name}")   
+        upstream_server = get_next_server(target_group_name)
+        if not upstream_server:
+            logger.debug(f"No server available for target group '{target_group_name}'")
+            return Response("Service unavailable", status=503)
+        
+        rewritten_path = full_path.replace(listener_rule.get("path_prefix", ""), listener_rule.get("path_rewrite", ""), 1)
+        
+        upstream_url = f"{upstream_server['hostname']}{rewritten_path}"
+        logger.debug(f"Forwarding request to {upstream_url}")
 
-        resp = requests.request(
+        response = requests.request(
             method=request.method,
-            url=url,
+            url=upstream_url,
             headers={k: v for k, v in request.headers if k != 'Host'},
             data=request.get_data(),
             cookies=request.cookies,
@@ -179,20 +209,19 @@ def proxy(subpath):
             timeout=CONNECTION_TIMEOUT
         )
 
-        logger.debug(f"Request to {target} completed with status code {resp.status_code}")
-        return Response(resp.content, resp.status_code, resp.headers.items())
+        return Response(
+            response.content, 
+            status=response.status_code, 
+            headers=dict(response.headers)
+        )
+
+    except requests.exceptions.Timeout:
+        logger.debug(f"Request to {upstream_server} timed out")
+        return Response("Gateway timeout", status=504)
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Request to {target} failed: {e}")
-        return {"error": f"Server {target} unreachable"}, 502
-
-@app.route("/config", methods=["GET"])
-def get_targets():
-    """Return the list of backend servers and their health status."""
-    return {
-        "listeners": LISTENERS,
-        "target_groups": TARGET_GROUPS
-    }
+        logger.debug(f"Connection error while forwarding request to {upstream_server}: {e}")
+        return Response("Bad gateway", status=502)
 
 if __name__ == "__main__":
     print(f"Load balancer running on port {LISTENER_PORT}...")
