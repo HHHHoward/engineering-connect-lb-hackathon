@@ -16,21 +16,7 @@ target_groups:
 
   - name: "backend-docker"
     targets:
-      - hostname: "backend1"
-        port: 5000
-        healthcheck:
-          path: "/health"
-          status_code: 
-            - 200
-          timeout: 2
-      - hostname: "backend2"
-        port: 5000
-        healthcheck:
-          path: "/health"
-          status_code: 
-            - 200
-          timeout: 2
-      - hostname: "backend3"
+      - hostname: "backends"
         port: 5000
         healthcheck:
           path: "/health"

@@ -3,6 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import requests
+import socket
 import threading
 import time
 import yaml
@@ -39,7 +40,7 @@ def load_config():
             return yaml.safe_load(file)
 
     except Exception as e:
-        logger.error(f"Failed to load configuration: {e}")
+        logger.debug(f"Failed to load configuration: {e}")
         return {"target_groups": [], "listeners": []}
 
 config = load_config()
@@ -48,6 +49,14 @@ LISTENERS = config["listeners"]
 
 logger.debug(f"Listeners loaded: {LISTENERS}")
 
+def resolve_hostname(hostname):
+    """Resolve a hostname to a list of IP addresses."""
+    try:
+        return [addr[4][0] for addr in socket.getaddrinfo(hostname, None, family=socket.AF_INET)]
+    except socket.gaierror as e:
+        logger.debug(f"Failed to resolve hostname '{hostname}': {e}")
+        return []
+    
 def load_target_groups():
     logger.debug("Loading target groups from configuration")
     target_groups = {}
@@ -61,12 +70,20 @@ def load_target_groups():
 
             logger.debug(f"Loading server healthcheck: {healthcheck}")
 
-            server = {
-                "hostname": f"http://{target['hostname']}:{target['port']}",
-                "weight": target.get("weight", 1),
-                "healthcheck": healthcheck
-            }
-            targets.append(server)
+            # Resolve the hostname to IP addresses
+            resolved_ips = resolve_hostname(target["hostname"])
+            if not resolved_ips:
+                logger.debug(f"Skipping target '{target['hostname']}:{target['port']}' due to DNS resolution failure.")
+                continue
+
+            for ip in resolved_ips:
+                server = {
+                    "hostname": f"http://{ip}:{target['port']}",
+                    "weight": target.get("weight", 1),
+                    "healthcheck": healthcheck
+                }
+                targets.append(server)
+                logger.debug(f"Added resolved target: {server}")
         
         target_groups[target_group["name"]] = {
             "servers": targets,
@@ -97,7 +114,7 @@ def get_next_server(target_group_name):
     match LOAD_BALANCING_ALGORITHM:
       case "ROUND_ROBIN":        
         server = healthy_servers[current]
-        logger.debug(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
+        logger.info(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
         target_group["current_index"] = (current + 1) % len(healthy_servers)
         return server
 
@@ -112,7 +129,7 @@ def get_next_server(target_group_name):
         ] 
 
         server = server_weight_assigned[current]
-        logger.debug(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
+        logger.info(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
         
         target_group["current_index"] = (current + 1) % len(server_weight_assigned)
         return server
@@ -135,10 +152,10 @@ def check_server(server):
         return r.status_code in healthcheck["status_code"]
     
     except requests.exceptions.Timeout:
-        logger.warning(f"Health check for {server['hostname']} timed out.")
+        logger.debug(f"Health check for {server['hostname']} timed out.")
         return False
     except Exception as e:
-        logger.error(f"Health check failed for {server['hostname']}: {e}")
+        logger.debug(f"Health check failed for {server['hostname']}: {e}")
         return False
 
 
@@ -153,7 +170,7 @@ def health_check_loop():
             ]
 
             if new_healthy_servers != group_data["healthy_servers"]:
-                logger.info(f"Health status changed for target group '{group_name}'. Healthy servers: {new_healthy_servers}")
+                logger.debug(f"Health status changed for target group '{group_name}'. Healthy servers: {new_healthy_servers}")
 
             group_data["healthy_servers"] = new_healthy_servers
         time.sleep(3)
