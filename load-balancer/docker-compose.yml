@@ -1,0 +1,10 @@
+services:
+  load-balancer:
+    build: ./
+    container_name: load-balancer
+    volumes:
+      - ./config.yml:/app/config.yml
+    ports:
+      - "8000:80"
+    env_file:
+      - .env

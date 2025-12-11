@@ -70,10 +70,11 @@ def load_target_groups():
 
             logger.debug(f"Loading server healthcheck: {healthcheck}")
 
+            target_hostname = target["hostname"].replace("http://", "").replace("https://", "").replace("/", "")
             # Resolve the hostname to IP addresses
-            resolved_ips = resolve_hostname(target["hostname"])
+            resolved_ips = resolve_hostname(target_hostname)
             if not resolved_ips:
-                logger.debug(f"Skipping target '{target['hostname']}:{target['port']}' due to DNS resolution failure.")
+                logger.debug(f"Skipping target '{target_hostname}:{target['port']}' due to DNS resolution failure.")
                 continue
 
             for ip in resolved_ips:
@@ -114,7 +115,7 @@ def get_next_server(target_group_name):
     match LOAD_BALANCING_ALGORITHM:
       case "ROUND_ROBIN":        
         server = healthy_servers[current]
-        logger.info(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
+        logger.debug(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
         target_group["current_index"] = (current + 1) % len(healthy_servers)
         return server
 
@@ -129,7 +130,7 @@ def get_next_server(target_group_name):
         ] 
 
         server = server_weight_assigned[current]
-        logger.info(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
+        logger.debug(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
         
         target_group["current_index"] = (current + 1) % len(server_weight_assigned)
         return server

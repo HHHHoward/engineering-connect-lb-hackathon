@@ -1,56 +1,12 @@
 listeners:
-  - path_prefix: "/api"
-    path_rewrite: "/v1"
-    target_group: "backend-docker"
-
-  - path_prefix: "/local"
-    path_rewrite: "/v1"
-    target_group: "backend-localhost"
-
   - path_prefix: "/weighted"
     path_rewrite: "/v1"
     target_group: "backend-weighted"
 
-
 target_groups:
-
-  - name: "backend-docker"
-    targets:
-      - hostname: "backends"
-        port: 5000
-        healthcheck:
-          path: "/health"
-          status_code: 
-            - 200
-          timeout: 2
-
-  - name: "backend-localhost"
-    targets:
-      - hostname: "127.0.0.1"
-        port: 5001
-        healthcheck:
-          path: "/health"
-          status_code: 
-            - 200
-          timeout: 2
-      - hostname: "127.0.0.1"
-        port: 5002
-        healthcheck:
-          path: "/health"
-          status_code: 
-            - 200
-          timeout: 2
-      - hostname: "127.0.0.1"
-        port: 5003
-        healthcheck:
-          path: "/health"
-          status_code: 
-            - 200
-          timeout: 2
-
   - name: "backend-weighted"
     targets:
-      - hostname: "127.0.0.1"
+      - hostname: "192.168.0.12"
         port: 5001
         weight: 3
         healthcheck:
@@ -58,7 +14,7 @@ target_groups:
           status_code: 
             - 200
           timeout: 2
-      - hostname: "127.0.0.1"
+      - hostname: "192.168.0.12"
         port: 5002
         weight: 2
         healthcheck:
@@ -66,7 +22,7 @@ target_groups:
           status_code:
             - 200
           timeout: 2
-      - hostname: "127.0.0.1"
+      - hostname: "192.168.0.12"
         port: 5003
         weight: 1
         healthcheck:

@@ -6,22 +6,29 @@ services:
       - ./load-balancer/config.yml:/app/config.yml
     ports:
       - "8000:80"
-    networks:
-      - app-network
     env_file:
       - ./load-balancer/.env
 
-  backends:
+  backend1:
     build: ./backend-api
+    container_name: backend1
     ports:
-      - "5000"
-    networks:
-      - app-network
-    deploy:
-      replicas: 3
+      - "5001:5000"
     env_file:
       - ./backend-api/.env
 
-networks:
-  app-network:
-    driver: bridge
+  backend2:
+    build: ./backend-api
+    container_name: backend2
+    ports:
+      - "5002:5000"
+    env_file:
+      - ./backend-api/.env
+
+  backend3:
+    build: ./backend-api
+    container_name: backend3
+    ports:
+      - "5003:5000"
+    env_file:
+      - ./backend-api/.env
