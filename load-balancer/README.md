@@ -13,6 +13,7 @@
 |`listeners[].target_group`|Name of the target group to route requests to|String|Yes|N/A|
 |`target_groups`|List of target groups that define upstream servers|List|Yes|N/A|
 |`target_groups[].name`|Name of the target group|String|Yes|N/A|
+|`target_groups[].session_ttl`|Sticky session TTL. (in ms)|Int|No|60000|
 |`target_groups[].targets`|List of upstream servers in the target group|List|Yes|N/A|
 |`target_groups[].targets[].hostname`|Hostname or IP address of the upstream server|String|Yes|N/A|
 |`target_groups[].targets[].port`|Port of the upstream server|Int|Yes|N/A|
@@ -26,11 +27,12 @@
 
 |Variable|Description|Type|Options|Default|
 |-|-|-|-|-|
-|`CONFIG_FILE`|Location of the file used to define Listeners and Target Groups|String|File Path|`config.yml`|
+|`CONFIG_FILE`|Location of the file used to define Listeners and Target Groups.|String|File Path|`config.yml`|
 |`LOG_LEVEL`|Load balancer LOG LEVEL. Bear in mind, all logging is done only in DEBUG.|String|`DEBUG` `INFO`|`INFO`|
-|`LISTENER_PORT`|Port where the load balancer CONTAINER will listen. Make sure to match with the correct docker port|Int|Any Port Available|80|
-|`CONNECTION_TIMEOUT`|Connection timeout for when the LB is trying to reach the selected upstream server (In Seconds)|Int|Any Integer number|2|
-|`LOAD_BALANCING_ALGORITHM`|Algorithm used by LB for ALL target groups|String|`ROUND_ROBIN` `WEIGHTED`|`ROUND_ROBIN`|
+|`LISTENER_PORT`|Port where the load balancer CONTAINER will listen. Make sure to match with the correct docker port.|Int|Any Port Available|80|
+|`CONNECTION_TIMEOUT`|Connection timeout for when the LB is trying to reach the selected upstream server. (In Seconds)|Int|Any Integer|2|
+|`LOAD_BALANCING_ALGORITHM`|Algorithm used by LB for ALL target groups.|String|`ROUND_ROBIN` `WEIGHTED` `STICKY`|`ROUND_ROBIN`|
+|`HEALTHCHECK_INTERVAL`|Interval to keep running healthchecks on targets. (In Seconds)|Int|Any Integer|5|
 
 
 3. **Build the Docker Image**:  
@@ -56,6 +58,7 @@
 - **Load Balancing Algorithms**:
   - `ROUND_ROBIN`: Distributes requests evenly across all healthy targets.
   - `WEIGHTED`: Distributes requests based on target weights.
+  - `STICKY`: Distribute requests based on a session TTL per target group.
 
 - **Health Checks**:
   - Periodically checks the health of upstream servers.

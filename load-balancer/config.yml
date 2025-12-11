@@ -1,10 +1,11 @@
 listeners:
-  - path_prefix: "/weighted"
+  - path_prefix: "/api"
     path_rewrite: "/v1"
-    target_group: "backend-weighted"
+    target_group: "backend"
 
 target_groups:
-  - name: "backend-weighted"
+  - name: "backend"
+    session_ttl: 3000
     targets:
       - hostname: "192.168.0.12"
         port: 5001

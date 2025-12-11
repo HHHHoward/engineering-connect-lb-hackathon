@@ -17,6 +17,8 @@ LISTENER_PORT = int(os.getenv("LISTENER_PORT", 80))
 CONNECTION_TIMEOUT = int(os.getenv("CONNECTION_TIMEOUT", 2))
 LOAD_BALANCING_ALGORITHM = os.getenv("LOAD_BALANCING_ALGORITHM", "ROUND_ROBIN").upper()
 
+HEALTHCHECK_INTERVAL= int(os.getenv("HEALTHCHECK_INTERVAL", 5))
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -88,8 +90,11 @@ def load_target_groups():
         
         target_groups[target_group["name"]] = {
             "servers": targets,
+            "session_ttl": target_group.get("session_ttl", 60000),
             "current_index": 0,
-            "healthy_servers": targets.copy()
+            "healthy_servers": targets.copy(),
+            "sticky_sessions": {},
+            "sticky_lock": threading.Lock()
         }
     return target_groups
 
@@ -97,6 +102,24 @@ TARGET_GROUPS = load_target_groups()
 
 logger.debug(f"Target Groups loaded: {TARGET_GROUPS}")
 
+def cleanup_expired_sessions(target_group):
+    """Remove expired sticky sessions."""
+    current_time = time.time() * 1000
+    expired_count = 0
+
+    sessions = target_group["sticky_sessions"]
+
+    expired_clients = [
+        client_id for client_id, session in sessions.items()
+        if session['expires_at'] < current_time
+    ]
+
+    for client_id in expired_clients:
+        logger.debug(f"Session expired for client {client_id} in target group, removing from sticky map")
+        del sessions[client_id]
+        expired_count += 1
+
+    return expired_count
 
 def get_next_server(target_group_name):
     if target_group_name not in TARGET_GROUPS:
@@ -112,28 +135,73 @@ def get_next_server(target_group_name):
     
     current = target_group["current_index"]
 
+    logger.debug(f"Using load balancing algorithm: {LOAD_BALANCING_ALGORITHM}")
     match LOAD_BALANCING_ALGORITHM:
-      case "ROUND_ROBIN":        
-        server = healthy_servers[current]
-        logger.debug(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
-        target_group["current_index"] = (current + 1) % len(healthy_servers)
-        return server
+        case "ROUND_ROBIN":        
+            server = healthy_servers[current]
+            logger.debug(f"Selected server {server} from target group '{target_group_name}' using ROUND_ROBIN.")
+            target_group["current_index"] = (current + 1) % len(healthy_servers)
+            return server
 
-      case "WEIGHTED":         
-        weights = [
-            server.get("weight", 1)
-            for server in healthy_servers
-        ]        
+        case "WEIGHTED":         
+            weights = [
+                server.get("weight", 1)
+                for server in healthy_servers
+            ]        
 
-        server_weight_assigned = [
-            server for server, weight in zip(healthy_servers, weights) for _ in range(weight)
-        ] 
+            server_weight_assigned = [
+                server for server, weight in zip(healthy_servers, weights) for _ in range(weight)
+            ] 
 
-        server = server_weight_assigned[current]
-        logger.debug(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
-        
-        target_group["current_index"] = (current + 1) % len(server_weight_assigned)
-        return server
+            server = server_weight_assigned[current]
+            logger.debug(f"Selected server {server} from target group '{target_group_name}' using WEIGHTED.")
+            
+            target_group["current_index"] = (current + 1) % len(server_weight_assigned)
+            return server
+
+        case "STICKY":
+            logger.debug(f"Processing STICKY load balancing for target group '{target_group_name}'")
+            
+            with target_group["sticky_lock"]:
+                expired_count = cleanup_expired_sessions(target_group)
+                logger.debug(f"Cleaned up {expired_count} expired sticky sessions for target group '{target_group_name}'")
+
+                client_id = request.remote_addr
+                if not client_id:
+                    logger.debug("Sticky algorithm requires client IP address")
+                    return None
+
+                session_ttl = target_group["session_ttl"]
+                logger.debug(f"Session TTL for target group '{target_group_name}': {session_ttl}ms")
+
+                current_time = time.time() * 1000
+
+                sessions = target_group["sticky_sessions"]
+                if client_id in sessions:
+                    session = sessions[client_id]
+
+                    if session['expires_at'] < current_time:
+                        logger.debug(f"Session expired for client {client_id} in target group '{target_group_name}', creating new session")
+                        del sessions[client_id]
+                    elif session['server'] not in target_group["healthy_servers"]:
+                        logger.debug(f"Assigned server {session['server']} is no longer healthy for client {client_id} in target group '{target_group_name}', creating new session")
+                        del sessions[client_id]
+                    else:
+                        logger.debug(f"Returning sticky server {session['server']} for client {client_id} in target group '{target_group_name}' (expires in {int((session['expires_at'] - current_time) / 1000)}s)")
+                        return session['server']
+  
+                counter = target_group["current_index"]
+                server = target_group["healthy_servers"][counter % len(target_group["healthy_servers"])]
+                target_group["current_index"] = (counter + 1) % len(target_group["healthy_servers"])
+
+                expires_at = current_time + session_ttl
+                sessions[client_id] = {
+                    'server': server,
+                    'expires_at': expires_at
+                }
+
+                logger.debug(f"Created new session for client {client_id} -> server {server} in target group '{target_group_name}' (TTL: {session_ttl}ms)")
+                return server
 
     logger.debug(f"Unknown load balancing algorithm: {LOAD_BALANCING_ALGORITHM}")
     return None
@@ -174,7 +242,7 @@ def health_check_loop():
                 logger.debug(f"Health status changed for target group '{group_name}'. Healthy servers: {new_healthy_servers}")
 
             group_data["healthy_servers"] = new_healthy_servers
-        time.sleep(3)
+        time.sleep(HEALTHCHECK_INTERVAL)
 
 
 threading.Thread(target=health_check_loop, daemon=True).start()
